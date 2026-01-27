@@ -84,12 +84,41 @@ def update(context):
     # 1. EXTRACT DATA: Get info about ourselves and the world
     me = context["me"]           # Your tank's info (x, y, health, ammo)
     my_x, my_y = me["x"], me["y"] # Simplified variables for position
+    my_angle = me["angle"]        # Tank's facing direction
     enemies = context["enemies"] # List of other tanks
     coins = context["coins"]     # List of coins (Round 1 only)
     bullets = context["bullets"] # List of all flying bullets
+    sensors = context["sensors"] # Raycast sensors for wall detection
     game_mode = context["game_mode"] # 1: Scramble, 2: Labyrinth, 3: Duel
     
-    # 2. PRIORITY 1 - DEFENSE: Dodge incoming bullets
+    # 2. PRIORITY 0 - OBSTACLE AVOIDANCE: Don't get stuck on walls!
+    
+    # EMERGENCY REVERSE: If face-planted into wall (< 10 pixels)
+    if sensors["front"] < 10:
+        # Full reverse! Move opposite to facing direction
+        reverse_angle = math.radians(my_angle + 180)
+        return ("MOVE", (math.cos(reverse_angle), math.sin(reverse_angle)))
+    
+    # STANDARD AVOIDANCE: Wall approaching (< 50 pixels)
+    elif sensors["front"] < 50:
+        # Turn toward open space
+        if sensors["left"] > sensors["right"]:
+            turn_angle = math.radians(my_angle - 90)  # Turn left
+        else:
+            turn_angle = math.radians(my_angle + 90)  # Turn right
+        return ("MOVE", (math.cos(turn_angle), math.sin(turn_angle)))
+    
+    elif sensors["left"] < 30:
+        # Wall on left - nudge right
+        turn_angle = math.radians(my_angle + 45)
+        return ("MOVE", (math.cos(turn_angle), math.sin(turn_angle)))
+    
+    elif sensors["right"] < 30:
+        # Wall on right - nudge left
+        turn_angle = math.radians(my_angle - 45)
+        return ("MOVE", (math.cos(turn_angle), math.sin(turn_angle)))
+    
+    # 3. PRIORITY 1 - DEFENSE: Dodge incoming bullets
     for bullet in bullets:
         # We look 120 pixels around us for threats
         if is_bullet_dangerous(my_x, my_y, bullet, 120):

@@ -52,9 +52,33 @@ context = {
         {"x": float, "y": float, "vx": float, "vy": float},  # Enemy bullets
         ...
     ],
+    "sensors": {
+        "front": float,  # Distance to wall ahead (max 300 pixels)
+        "left": float,   # Distance to wall at -30 degrees
+        "right": float   # Distance to wall at +30 degrees
+    },
     "game_mode": int,     # 1=Scramble, 2=Labyrinth, 3=Duel
     "time_left": float    # Time remaining in seconds
 }
+
+SENSORS (Obstacle Avoidance):
+-----------------------------
+The 'sensors' key contains raycast distances to walls in 3 directions:
+- "front": Distance to wall straight ahead (0 degrees from facing)
+- "left":  Distance to wall at -30 degrees (left whisker)
+- "right": Distance to wall at +30 degrees (right whisker)
+
+Max range is 300 pixels. If no wall is detected, the value is 300.
+
+Example Usage:
+    sensors = context["sensors"]
+    if sensors["front"] < 50:  # Wall is close ahead!
+        if sensors["left"] > sensors["right"]:
+            # More space on left - turn left
+            return ("MOVE", (-1, 0))
+        else:
+            # More space on right - turn right
+            return ("MOVE", (1, 0))
 
 TIPS:
 -----
@@ -63,6 +87,7 @@ TIPS:
 3. If your code crashes, your tank will freeze but the game continues.
 4. Use math.atan2(dy, dx) to calculate angles to targets.
 5. In Mode 1 (Scramble), bullets only knock back - they don't damage!
+6. Use sensors["front"] < 50 to detect walls ahead and avoid them!
 
 HELPER FUNCTIONS:
 -----------------
@@ -146,6 +171,39 @@ def update(context):
     # =========================================================================
     # EXAMPLE STRATEGY: This is a basic bot, modify it!
     # =========================================================================
+    
+    # PRIORITY 0: OBSTACLE AVOIDANCE REFLEX (Prevents getting stuck!)
+    sensors = context["sensors"]
+    my_angle = me["angle"]
+    
+    # EMERGENCY REVERSE: If face-planted into wall (< 10 pixels)
+    if sensors["front"] < 10:
+        # Full reverse! Move opposite to facing direction
+        reverse_angle = math.radians(my_angle + 180)
+        return ("MOVE", (math.cos(reverse_angle), math.sin(reverse_angle)))
+    
+    # STANDARD AVOIDANCE: Wall approaching (< 50 pixels)
+    elif sensors["front"] < 50:
+        # Turn toward open space
+        if sensors["left"] > sensors["right"]:
+            # More space on left - turn left (perpendicular to facing)
+            turn_angle = math.radians(my_angle - 90)
+        else:
+            # More space on right - turn right
+            turn_angle = math.radians(my_angle + 90)
+        dx = math.cos(turn_angle)
+        dy = math.sin(turn_angle)
+        return ("MOVE", (dx, dy))
+    
+    elif sensors["left"] < 30:
+        # Wall on left - nudge right
+        turn_angle = math.radians(my_angle + 45)
+        return ("MOVE", (math.cos(turn_angle), math.sin(turn_angle)))
+    
+    elif sensors["right"] < 30:
+        # Wall on right - nudge left
+        turn_angle = math.radians(my_angle - 45)
+        return ("MOVE", (math.cos(turn_angle), math.sin(turn_angle)))
     
     # Priority 1: Dodge incoming bullets
     for bullet in bullets:

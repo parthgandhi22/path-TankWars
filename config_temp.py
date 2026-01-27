@@ -61,7 +61,7 @@ TANK_ENGINE_FORCE = 1200.0          # Force applied when moving
 TANK_FRICTION = 5.0                 # Friction/Drag factor
 TANK_MASS = 1.0                     # Tank mass
 TANK_ROTATION_SPEED = 5.0           # Degrees per frame
-TANK_MAX_HEALTH = 1000
+TANK_MAX_HEALTH = 100
 TANK_STARTING_AMMO = 200
 TANK_RECOIL = 3.0                   # Pushback when shooting
 
@@ -77,7 +77,7 @@ BULLET_TRAIL_FADE = 0.85            # Trail opacity decay
 # RNG Factors
 CRITICAL_HIT_CHANCE = 0.10          # 10% chance for 3x damage
 CRITICAL_HIT_MULTIPLIER = 3.0
-JAM_CHANCE = 0.01              # 1% chance tank stalls
+JAM_CHANCE = 0.01                   # 1% chance tank stalls
 
 # =============================================================================
 # PARTICLE SETTINGS
@@ -111,20 +111,9 @@ SCRAMBLE_KNOCKBACK = 15.0           # Bullet knockback (no damage)
 SCRAMBLE_TOP_SURVIVORS = 5          # How many advance to next round
 
 # Mode 2: The Labyrinth
-LABYRINTH_ZONE_SHRINK_INTERVAL = 10 # Seconds between zone shrinks
+LABYRINTH_ZONE_SHRINK_INTERVAL = 5 # Seconds between zone shrinks
 LABYRINTH_ZONE_DAMAGE = 5           # DPS when in the zone
 LABYRINTH_FINAL_SURVIVORS = 2       # How many advance to finals
-
-# Danger Zones (Orbital Strike - Mode 2)
-DANGER_ZONE_SPAWN_INTERVAL = 10.0   # Seconds between spawns
-DANGER_ZONE_WARNING_DURATION = 2.0  # Warning phase (time to escape)
-DANGER_ZONE_ACTIVE_DURATION = 5.0   # Active bombardment phase
-DANGER_ZONE_RADIUS = 120            # Size of the circle
-DANGER_ZONE_DAMAGE = 25             # Damage per blast hit
-DANGER_ZONE_KNOCKBACK = 40.0       # Knockback force from blasts
-DANGER_ZONE_BLAST_INTERVAL = 0.5    # Seconds between explosions
-COLOR_DANGER_WARNING = (255, 50, 50, 100)   # Semi-transparent red
-COLOR_DANGER_ACTIVE = (255, 150, 150, 180)  # Bright red-white
 
 # Mode 3: The Duel
 DUEL_SUDDEN_DEATH_TIME = 60         # Seconds before laser
@@ -149,7 +138,7 @@ GRID_CELL_SIZE = 50                 # For maze generation
 # BOT SETTINGS
 # =============================================================================
 BOT_TIMEOUT_MS = 100                # Max execution time for bot logic
-BOT_DEFAULT_COUNT = 10           # Number of bots in game
+BOT_DEFAULT_COUNT = 8               # Number of bots in game
 
 # =============================================================================
 # AUDIO SETTINGS

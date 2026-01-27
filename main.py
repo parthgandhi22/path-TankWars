@@ -124,6 +124,53 @@ def normalize_angle(angle: float) -> float:
         angle += 360
     return angle
 
+# Sensor constants
+SENSOR_MAX_RANGE = 300.0  # Max detection distance in pixels
+SENSOR_ANGLES = {
+    "front": 0,      # Straight ahead
+    "left": -30,     # 30 degrees to the left
+    "right": 30      # 30 degrees to the right
+}
+
+def get_sensor_readings(tank_x: float, tank_y: float, tank_angle: float, walls: List) -> Dict[str, float]:
+    """
+    Cast 3 rays (whiskers) from the tank to detect walls.
+    Uses pygame.Rect.clipline for efficient collision detection.
+    
+    Returns: {"front": dist, "left": dist, "right": dist}
+    Max distance is SENSOR_MAX_RANGE (300). If no wall hit, returns 300.
+    """
+    readings = {}
+    
+    for sensor_name, offset_angle in SENSOR_ANGLES.items():
+        # Calculate ray direction
+        ray_angle = math.radians(tank_angle + offset_angle)
+        
+        # Ray start and end points
+        start_x = tank_x
+        start_y = tank_y
+        end_x = tank_x + math.cos(ray_angle) * SENSOR_MAX_RANGE
+        end_y = tank_y + math.sin(ray_angle) * SENSOR_MAX_RANGE
+        
+        # Find shortest distance to any wall
+        min_dist = SENSOR_MAX_RANGE
+        
+        for wall in walls:
+            wall_rect = wall.get_rect()
+            # clipline returns the segment of line inside the rect, or empty tuple
+            clipped = wall_rect.clipline((start_x, start_y), (end_x, end_y))
+            
+            if clipped:
+                # clipped is ((x1, y1), (x2, y2)) - the segment inside the wall
+                hit_x, hit_y = clipped[0]  # First intersection point
+                dist = distance(start_x, start_y, hit_x, hit_y)
+                if dist < min_dist:
+                    min_dist = dist
+        
+        readings[sensor_name] = round(min_dist, 1)
+    
+    return readings
+
 # =============================================================================
 # CAMERA (Screen Shake)
 # =============================================================================
@@ -452,17 +499,42 @@ class Tank:
         self.pos.x = self.x
         self.pos.y = self.y
         
-        # Wall collision (bounce)
+        # Wall collision (SLIDING - not sticky!)
         if walls:
             tank_rect = self.get_rect()
             for wall in walls:
-                if tank_rect.colliderect(wall.get_rect()):
-                    # Reverse and dampen velocity
-                    self.pos -= self.velocity * dt * 2
-                    self.velocity *= -0.3
+                wall_rect = wall.get_rect()
+                if tank_rect.colliderect(wall_rect):
+                    # Calculate overlap on each axis
+                    overlap_left = tank_rect.right - wall_rect.left
+                    overlap_right = wall_rect.right - tank_rect.left
+                    overlap_top = tank_rect.bottom - wall_rect.top
+                    overlap_bottom = wall_rect.bottom - tank_rect.top
+                    
+                    # Find minimum overlap (the axis we need to resolve)
+                    min_overlap_x = min(overlap_left, overlap_right)
+                    min_overlap_y = min(overlap_top, overlap_bottom)
+                    
+                    # Resolve collision on the axis with smaller overlap (allows sliding!)
+                    if min_overlap_x < min_overlap_y:
+                        # Horizontal collision - push out horizontally, KEEP vertical velocity
+                        if overlap_left < overlap_right:
+                            self.pos.x -= overlap_left + 1
+                        else:
+                            self.pos.x += overlap_right + 1
+                        self.velocity.x = 0  # Stop horizontal, but slide vertically
+                    else:
+                        # Vertical collision - push out vertically, KEEP horizontal velocity
+                        if overlap_top < overlap_bottom:
+                            self.pos.y -= overlap_top + 1
+                        else:
+                            self.pos.y += overlap_bottom + 1
+                        self.velocity.y = 0  # Stop vertical, but slide horizontally
+                    
+                    # Sync position
                     self.x = self.pos.x
                     self.y = self.pos.y
-                    break
+                    tank_rect = self.get_rect()  # Update rect for next wall check
         
         # Update cooldowns
         if self.shoot_cooldown > 0:
@@ -774,6 +846,136 @@ class Laser:
         pygame.draw.line(surface, (100, 0, 0), (laser_x + 10, 0), (laser_x + 10, SCREEN_HEIGHT), 8)
 
 # =============================================================================
+# DANGER ZONE (Orbital Strike - Mode 2)
+# =============================================================================
+
+class DangerZone:
+    """
+    Orbital Strike danger zone for Labyrinth mode.
+    Phases: WARNING (pulsing red) -> ACTIVE (explosions) -> DESPAWN
+    """
+    
+    # Phase constants
+    PHASE_WARNING = 0
+    PHASE_ACTIVE = 1
+    PHASE_DEAD = 2
+    
+    def __init__(self, x: float, y: float, particles: ParticleSystem):
+        self.x = x
+        self.y = y
+        self.radius = DANGER_ZONE_RADIUS
+        self.particles = particles
+        
+        # Timing
+        self.phase = self.PHASE_WARNING
+        self.timer = 0.0
+        self.blast_timer = 0.0
+        
+        # Visual
+        self.pulse_time = 0.0
+        
+        # Pre-render warning circle surface (with alpha)
+        self.warning_surface = pygame.Surface((self.radius * 2 + 20, self.radius * 2 + 20), pygame.SRCALPHA)
+        self.active_surface = pygame.Surface((self.radius * 2 + 20, self.radius * 2 + 20), pygame.SRCALPHA)
+        
+        # Play siren sound on spawn
+        play_sound(SFX_COIN)  # Use coin sound as placeholder for siren
+    
+    def update(self, dt: float) -> bool:
+        """Update the danger zone. Returns False when zone should be removed."""
+        self.timer += dt
+        self.pulse_time += dt * 8  # Faster pulsing
+        
+        if self.phase == self.PHASE_WARNING:
+            if self.timer >= DANGER_ZONE_WARNING_DURATION:
+                self.phase = self.PHASE_ACTIVE
+                self.timer = 0.0
+                self.blast_timer = 0.0
+        
+        elif self.phase == self.PHASE_ACTIVE:
+            # Spawn explosion particles periodically
+            self.blast_timer += dt
+            if self.blast_timer >= DANGER_ZONE_BLAST_INTERVAL:
+                self.blast_timer = 0.0
+                self._spawn_blast()
+            
+            if self.timer >= DANGER_ZONE_ACTIVE_DURATION:
+                self.phase = self.PHASE_DEAD
+                return False
+        
+        return True
+    
+    def _spawn_blast(self):
+        """Spawn explosion particles at random point inside zone."""
+        # Random point inside circle
+        angle = random.uniform(0, math.pi * 2)
+        dist = random.uniform(0, self.radius * 0.8)
+        blast_x = self.x + math.cos(angle) * dist
+        blast_y = self.y + math.sin(angle) * dist
+        
+        # Spawn particles
+        self.particles.spawn_explosion(blast_x, blast_y, (255, 100, 50))
+        play_sound(SFX_EXPLOSION)
+    
+    def check_hit(self, tank) -> bool:
+        """Check if tank is inside active zone."""
+        if self.phase != self.PHASE_ACTIVE:
+            return False
+        
+        dist = distance(self.x, self.y, tank.x, tank.y)
+        return dist < self.radius
+    
+    def apply_damage(self, tank):
+        """Apply damage and knockback to tank in zone."""
+        if not self.check_hit(tank):
+            return
+        
+        # Damage
+        tank.take_damage(DANGER_ZONE_DAMAGE)
+        
+        # Knockback away from center
+        angle = angle_to(self.x, self.y, tank.x, tank.y)
+        tank.apply_knockback(angle, DANGER_ZONE_KNOCKBACK)
+    
+    def draw(self, surface: pygame.Surface, camera: Camera):
+        """Draw the danger zone with visual effects."""
+        pos = camera.apply((self.x, self.y))
+        center = (self.radius + 10, self.radius + 10)
+        
+        if self.phase == self.PHASE_WARNING:
+            # Pulsing warning circle
+            pulse = (math.sin(self.pulse_time) + 1) / 2  # 0 to 1
+            alpha = int(50 + pulse * 100)  # 50 to 150
+            
+            self.warning_surface.fill((0, 0, 0, 0))
+            pygame.draw.circle(self.warning_surface, (255, 50, 50, alpha), center, self.radius)
+            pygame.draw.circle(self.warning_surface, (255, 100, 100, alpha + 50), center, self.radius, 4)
+            
+            # Draw "X" crosshair
+            cross_alpha = int(100 + pulse * 100)
+            pygame.draw.line(self.warning_surface, (255, 0, 0, cross_alpha), 
+                           (center[0] - self.radius, center[1]), 
+                           (center[0] + self.radius, center[1]), 2)
+            pygame.draw.line(self.warning_surface, (255, 0, 0, cross_alpha), 
+                           (center[0], center[1] - self.radius), 
+                           (center[0], center[1] + self.radius), 2)
+            
+            blit_pos = (pos[0] - self.radius - 10, pos[1] - self.radius - 10)
+            surface.blit(self.warning_surface, blit_pos)
+        
+        elif self.phase == self.PHASE_ACTIVE:
+            # Flashing active zone
+            flash = (math.sin(self.pulse_time * 3) + 1) / 2
+            alpha = int(100 + flash * 80)
+            
+            self.active_surface.fill((0, 0, 0, 0))
+            pygame.draw.circle(self.active_surface, (255, 150 + int(flash * 100), 150, alpha), center, self.radius)
+            pygame.draw.circle(self.active_surface, (255, 255, 255, alpha), center, self.radius, 3)
+            
+            blit_pos = (pos[0] - self.radius - 10, pos[1] - self.radius - 10)
+            surface.blit(self.active_surface, blit_pos)
+
+# =============================================================================
 # BOT LOADER (Sandboxed Execution)
 # =============================================================================
 
@@ -852,6 +1054,10 @@ class GitWarsEngine:
         self.zone = Zone()
         self.laser = Laser()
         
+        # Danger Zones (Orbital Strikes - Mode 2)
+        self.danger_zones: List[DangerZone] = []
+        self.danger_zone_timer = 0.0
+        
         self.game_mode = GAME_MODE
         self.game_timer = 0.0
         self.coin_spawn_timer = 0.0
@@ -916,6 +1122,9 @@ class GitWarsEngine:
         # Reset timers
         if self.game_mode == 1:
             self.game_timer = SCRAMBLE_DURATION
+        elif self.game_mode == 2:
+            self.danger_zones = []  # Reset danger zones
+            self.danger_zone_timer = 0.0
         elif self.game_mode == 3:
             self.game_timer = DUEL_SUDDEN_DEATH_TIME
             self.laser = Laser()  # Reset laser
@@ -959,6 +1168,15 @@ class GitWarsEngine:
                 self.coins.append(Coin(x, y))
                 break
     
+    def spawn_danger_zone(self):
+        """Spawn a new danger zone (Orbital Strike) at random position."""
+        # Ensure zone is fully on screen
+        margin = DANGER_ZONE_RADIUS + 50
+        x = random.randint(margin, SCREEN_WIDTH - margin)
+        y = random.randint(margin, SCREEN_HEIGHT - margin)
+        
+        self.danger_zones.append(DangerZone(x, y, self.particles))
+    
     def build_context(self, tank: Tank) -> Dict:
         """Build the context dictionary for a tank's bot."""
         enemies = []
@@ -988,12 +1206,16 @@ class GitWarsEngine:
                     "vy": bullet.vy
                 })
         
+        # Get sensor readings for obstacle avoidance
+        sensor_readings = get_sensor_readings(tank.x, tank.y, tank.angle, self.walls)
+        
         return {
             "me": tank.get_context(),
             "enemies": enemies,
             "coins": coin_data,
             "walls": wall_data,
             "bullets": bullet_data,
+            "sensors": sensor_readings,  # NEW: Raycast sensors for wall detection
             "game_mode": self.game_mode,
             "time_left": self.game_timer
         }
@@ -1102,6 +1324,25 @@ class GitWarsEngine:
         
         elif self.game_mode == 2:
             self.zone.update(dt)
+            
+            # Danger Zone spawning (Orbital Strikes)
+            self.danger_zone_timer += dt
+            if self.danger_zone_timer >= DANGER_ZONE_SPAWN_INTERVAL:
+                self.danger_zone_timer = 0.0
+                self.spawn_danger_zone()
+            
+            # Update danger zones
+            for dz in self.danger_zones[:]:
+                if not dz.update(dt):
+                    self.danger_zones.remove(dz)
+                else:
+                    # Apply damage to tanks inside active zones
+                    for tank in self.tanks:
+                        if tank.alive:
+                            dz.apply_damage(tank)
+                            if not tank.alive:
+                                self.on_tank_death(tank)
+            
             alive_count = sum(1 for t in self.tanks if t.alive)
             if alive_count <= LABYRINTH_FINAL_SURVIVORS:
                 self.end_labyrinth()
@@ -1254,6 +1495,9 @@ class GitWarsEngine:
         # Draw zone (Mode 2)
         if self.game_mode == 2:
             self.zone.draw(self.screen, self.camera)
+            # Draw danger zones (Orbital Strikes)
+            for dz in self.danger_zones:
+                dz.draw(self.screen, self.camera)
         
         # Draw walls
         for wall in self.walls:
