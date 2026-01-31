@@ -438,9 +438,11 @@ class Tank:
         self.color = color
         
         self.health = TANK_MAX_HEALTH
+        self.max_health = TANK_MAX_HEALTH  # Track max for health bar display
         self.ammo = TANK_STARTING_AMMO
         self.coins = 0
         self.alive = True
+        self.team_name = f"Tank_{tank_id}"  # Default, will be set from bot filename
         
         # =====================================================================
         # EULER PHYSICS SYSTEM
@@ -649,22 +651,29 @@ class Tank:
         if self.muzzle_flash_timer > 0:
             pygame.draw.circle(surface, (255, 255, 200), (int(barrel_end_x), int(barrel_end_y)), MUZZLE_FLASH_SIZE // 2)
         
-        # Health bar (direct drawing)
-        if self.health < TANK_MAX_HEALTH:
-            bar_width = TANK_SIZE
-            bar_height = 6
-            bar_x = pos[0] - bar_width // 2
-            bar_y = pos[1] - TANK_SIZE // 2 - 15
-            
-            pygame.draw.rect(surface, COLOR_HEALTH_BG, (bar_x, bar_y, bar_width, bar_height))
-            health_width = int(bar_width * (self.health / TANK_MAX_HEALTH))
-            health_color = COLOR_HEALTH_BAR if self.health > 30 else COLOR_DANGER
-            pygame.draw.rect(surface, health_color, (bar_x, bar_y, health_width, bar_height))
+        # Health bar (always show)
+        bar_width = TANK_SIZE
+        bar_height = 6
+        bar_x = pos[0] - bar_width // 2
+        bar_y = pos[1] - TANK_SIZE // 2 - 15
+        
+        max_hp = getattr(self, 'max_health', TANK_MAX_HEALTH)
+        pygame.draw.rect(surface, COLOR_HEALTH_BG, (bar_x, bar_y, bar_width, bar_height))
+        health_width = int(bar_width * (self.health / max_hp))
+        health_color = COLOR_HEALTH_BAR if self.health > (max_hp * 0.3) else COLOR_DANGER
+        pygame.draw.rect(surface, health_color, (bar_x, bar_y, health_width, bar_height))
         
         # Jam indicator - cache font
         if self.is_jammed:
             # Use a simple rect indicator instead of text (text is expensive)
             pygame.draw.rect(surface, COLOR_DANGER, (pos[0] - 15, pos[1] + TANK_SIZE // 2 + 5, 30, 5))
+        
+        # Team name label below tank
+        if hasattr(self, 'team_name') and self.team_name:
+            font = pygame.font.Font(None, 20)
+            name_surface = font.render(self.team_name, True, (200, 200, 200))
+            name_rect = name_surface.get_rect(center=(pos[0], pos[1] + TANK_SIZE // 2 + 18))
+            surface.blit(name_surface, name_rect)
     
     def get_rect(self) -> pygame.Rect:
         """Get collision rectangle."""
@@ -1236,9 +1245,28 @@ class BotLoader:
     
     def __init__(self, bot_path: str):
         self.bot_path = bot_path
+        self.bot_name = os.path.basename(bot_path)
         self.update_func: Optional[Callable] = None
         self.error_message: Optional[str] = None
+        self.error_logged = False  # Prevent spam - log each error once
         self.load_bot()
+    
+    def _log_error(self, error_type: str, error: Exception, show_traceback: bool = True):
+        """Print error to terminal with formatting."""
+        if self.error_logged:
+            return  # Don't spam the same error
+        
+        import traceback
+        print(f"\n{'='*60}")
+        print(f"🚨 BOT ERROR: {self.bot_name}")
+        print(f"{'='*60}")
+        print(f"Error Type: {error_type}")
+        print(f"Message: {str(error)}")
+        if show_traceback:
+            print(f"\nTraceback:")
+            traceback.print_exc()
+        print(f"{'='*60}\n")
+        self.error_logged = True
     
     def load_bot(self):
         """Load the bot module."""
@@ -1250,10 +1278,13 @@ class BotLoader:
                 
                 if hasattr(module, 'update'):
                     self.update_func = module.update
+                    print(f"✅ Loaded bot: {self.bot_name}")
                 else:
                     self.error_message = "Bot missing update() function"
+                    print(f"⚠️  {self.bot_name}: Missing update() function!")
         except Exception as e:
             self.error_message = f"Bot load error: {str(e)}"
+            self._log_error("LOAD ERROR", e)
     
     def execute(self, context: Dict) -> Tuple[Optional[str], Optional[any]]:
         """Execute bot update with timeout and error handling."""
@@ -1280,6 +1311,7 @@ class BotLoader:
             
         except Exception as e:
             self.error_message = f"Bot error: {str(e)}"
+            self._log_error("RUNTIME ERROR", e)
             return None, None
 
 # =============================================================================
@@ -1317,6 +1349,9 @@ class GitWarsEngine:
         self.game_over = False
         self.winner_text = ""
         
+        # Kill feed for Level 2 death messages
+        self.kill_feed = []  # List of {"text": str, "timer": float, "alpha": int}
+        
         # Fonts - pre-load once
         self.font_large = pygame.font.Font(None, 72)
         self.font_medium = pygame.font.Font(None, 48)
@@ -1347,6 +1382,21 @@ class GitWarsEngine:
         center_x, center_y = SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2
         radius = min(SCREEN_WIDTH, SCREEN_HEIGHT) // 3
         
+        # Scan bots folder for all bot_*.py files
+        import glob
+        bots_dir = os.path.join(os.path.dirname(__file__), "bots")
+        bot_files = sorted(glob.glob(os.path.join(bots_dir, "bot_*.py")))
+        
+        # Extract team names from filenames (bot_teamname.py -> teamname)
+        bot_info = []
+        for bot_file in bot_files:
+            filename = os.path.basename(bot_file)
+            team_name = filename[4:-3]  # Remove "bot_" prefix and ".py" suffix
+            bot_info.append((bot_file, team_name))
+        
+        # Fallback to my_bot.py if not enough bots
+        default_bot_path = os.path.join(bots_dir, "my_bot.py")
+        
         for i in range(num_tanks):
             angle = (2 * math.pi * i) / num_tanks
             x = center_x + math.cos(angle) * radius
@@ -1355,17 +1405,23 @@ class GitWarsEngine:
             
             tank = Tank(i, x, y, color)
             tank.angle = math.degrees(math.atan2(center_y - y, center_x - x))
-            self.tanks.append(tank)
             
-            # Try to load bot
-            bot_path = os.path.join(os.path.dirname(__file__), "bots", f"bot_{i}.py")
-            if os.path.exists(bot_path):
+            # Apply Level 3 health multiplier
+            if self.game_mode == 3:
+                new_health = int(TANK_MAX_HEALTH * LEVEL3_HEALTH_MULTIPLIER)
+                tank.health = new_health
+                tank.max_health = new_health
+            
+            # Load bot and assign team name
+            if i < len(bot_info):
+                bot_path, team_name = bot_info[i]
+                tank.team_name = team_name
                 self.bots[i] = BotLoader(bot_path)
-            else:
-                # Default bot path
-                default_path = os.path.join(os.path.dirname(__file__), "bots", "my_bot.py")
-                if os.path.exists(default_path):
-                    self.bots[i] = BotLoader(default_path)
+            elif os.path.exists(default_bot_path):
+                tank.team_name = f"Bot_{i}"
+                self.bots[i] = BotLoader(default_bot_path)
+            
+            self.tanks.append(tank)
         
         # Mode-specific setup
         if self.game_mode == 2:
@@ -1555,6 +1611,16 @@ class GitWarsEngine:
         # Update particles
         self.particles.update()
         
+        # Update kill feed timers (fade out over time)
+        if self.game_mode == 2:
+            for msg in self.kill_feed:
+                msg["timer"] -= dt
+                # Fade alpha as timer approaches 0
+                if msg["timer"] < 1.0:
+                    msg["alpha"] = int(255 * msg["timer"])
+            # Remove expired messages
+            self.kill_feed = [m for m in self.kill_feed if m["timer"] > 0]
+        
         # =====================================================================
         # PHYSICS LOOP REORDERING (Bullets/Collisions FIRST, then Tanks)
         # =====================================================================
@@ -1699,6 +1765,15 @@ class GitWarsEngine:
         
         # Explosion SFX
         play_sound(SFX_DEATH, VOL_DEATH)
+        
+        # Add kill feed message for Level 2
+        if self.game_mode == 2:
+            team_name = getattr(tank, 'team_name', f'Tank_{tank.id}')
+            self.kill_feed.append({
+                "text": f"{team_name} ELIMINATED",
+                "timer": 3.0,  # Display for 3 seconds
+                "alpha": 255
+            })
     
     def end_scramble(self):
         """End The Scramble mode."""
@@ -1708,7 +1783,8 @@ class GitWarsEngine:
         
         self.winner_text = "SCRAMBLE COMPLETE!\n"
         for i, tank in enumerate(winners):
-            self.winner_text += f"\n#{i+1}: Tank {tank.id} - {tank.coins} coins"
+            name = getattr(tank, 'team_name', f'Tank_{tank.id}')
+            self.winner_text += f"\n#{i+1}: {name} - {tank.coins} coins"
         
         pygame.mixer.music.stop()
         play_critical_sound(SFX_WIN_1, VOL_WIN)
@@ -1719,7 +1795,8 @@ class GitWarsEngine:
         survivors = [t for t in self.tanks if t.alive]
         self.winner_text = "LABYRINTH SURVIVORS:\n"
         for tank in survivors:
-            self.winner_text += f"\nTank {tank.id}"
+            name = getattr(tank, 'team_name', f'Tank_{tank.id}')
+            self.winner_text += f"\n{name}"
             
         pygame.mixer.music.stop()
         play_critical_sound(SFX_WIN_2, VOL_WIN)
@@ -1728,7 +1805,8 @@ class GitWarsEngine:
         """End The Duel mode."""
         self.game_over = True
         if winner:
-            self.winner_text = f"CHAMPION: Tank {winner.id}!"
+            name = getattr(winner, 'team_name', f'Tank_{winner.id}')
+            self.winner_text = f"CHAMPION: {name}!"
         else:
             self.winner_text = "DRAW!"
             
@@ -1765,7 +1843,8 @@ class GitWarsEngine:
             y_offset = 80
             for i, tank in enumerate(sorted_tanks[:5]):
                 color = tank.color if tank.alive else (100, 100, 100)
-                score_text = self.font_small.render(f"Tank {tank.id}: {tank.coins}", True, color)
+                name = getattr(tank, 'team_name', f'Tank_{tank.id}')
+                score_text = self.font_small.render(f"{name}: {tank.coins}", True, color)
                 self.screen.blit(score_text, (20, y_offset + i * 30))
         
         # Alive count (Mode 2)
@@ -1773,6 +1852,15 @@ class GitWarsEngine:
             alive = sum(1 for t in self.tanks if t.alive)
             alive_text = self.font_small.render(f"Alive: {alive}", True, COLOR_TEXT)
             self.screen.blit(alive_text, (SCREEN_WIDTH - 120, 20))
+            
+            # Kill feed messages (fading death notifications)
+            y_offset = 60
+            for i, msg in enumerate(self.kill_feed[:5]):  # Show max 5 messages
+                if msg["alpha"] > 0:
+                    alpha = msg["alpha"]
+                    text_surface = self.font_small.render(msg["text"], True, (255, 80, 80))
+                    text_surface.set_alpha(alpha)
+                    self.screen.blit(text_surface, (SCREEN_WIDTH - text_surface.get_width() - 20, y_offset + i * 28))
         
         # FPS
         if SHOW_FPS:

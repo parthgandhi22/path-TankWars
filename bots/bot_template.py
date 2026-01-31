@@ -1,18 +1,20 @@
 """
 GitWars - Bot Template
 ======================
-CONSOLE Tank Tournament
 
 This is your STARTER CODE! Edit this file to control your tank.
 Read the comments carefully to understand the API.
+Note: Avoid using AI tools to write your code.
 
 Your tank will call your update() function every frame.
 You must return an action tuple: (ACTION, PARAMETER)
 
 ACTIONS:
 --------
+You must return one of the following actions:
+
 ("MOVE", (dx, dy))   - Move in direction (dx, dy). Values are normalized.
-                       Example: ("MOVE", (1, 0)) = move right
+                       Example: ("MOVE", (3, 0)) = move right by 3 px
                        Example: ("MOVE", (0, -1)) = move up
                        Example: ("MOVE", (-1, 1)) = move down-left
 
@@ -25,14 +27,15 @@ ACTIONS:
 
 CONTEXT DICTIONARY:
 -------------------
-The engine passes you a `context` dictionary every frame with this structure:
+The game engine passes a `context` dictionary (If you don't know about dictionaries, have a quick Google search!) to your tank every frame.
+It contains all the information you need:
 
 context = {
     "me": {
         "x": float,      # Your tank's X position
         "y": float,      # Your tank's Y position  
         "angle": float,  # Your tank's facing angle (degrees)
-        "health": int,   # Your current health (0-100)
+        "health": int,   # Your current health (0-1000)
         "ammo": int,     # Your remaining bullets
         "coins": int     # Coins collected (Mode 1 only)
     },
@@ -57,42 +60,48 @@ context = {
         "left": float,   # Distance to wall at -30 degrees
         "right": float   # Distance to wall at +30 degrees
     },
-    "game_mode": int,     # 1=Scramble, 2=Labyrinth, 3=Duel
+    "game_mode": int,     # 1=Scramble, 2=Labyrinth, 3=Juggernaut
     "time_left": float    # Time remaining in seconds
 }
 
-SENSORS (Obstacle Avoidance):
+SENSORS (Obstacle Avoidance): (SKIP FOR LEVEL 1!!!!)
 -----------------------------
-The 'sensors' key contains raycast distances to walls in 3 directions:
+The 'sensors' key contains raycast distances to walls in 3 directions.
+
+(What is a Raycast? Think of it like an invisible laser beam or a "whisker" 
+that shoots out from your tank to measure the distance to the nearest object.)
+
 - "front": Distance to wall straight ahead (0 degrees from facing)
 - "left":  Distance to wall at -30 degrees (left whisker)
 - "right": Distance to wall at +30 degrees (right whisker)
 
 Max range is 300 pixels. If no wall is detected, the value is 300.
+- If the sensor sees a wall at 50px, it returns 50.
+- If it sees nothing (or the wall is too far), it returns 300.
 
 Example Usage:
     sensors = context["sensors"]
     if sensors["front"] < 50:  # Wall is close ahead!
         if sensors["left"] > sensors["right"]:
-            # More space on left - turn left
+            # More space on left -> turn left
             return ("MOVE", (-1, 0))
         else:
-            # More space on right - turn right
+            # More space on right -> turn right
             return ("MOVE", (1, 0))
 
 TIPS:
 -----
-1. Don't try to modify the context - it's a read-only copy!
-2. Your update() function has a 100ms time limit - keep it fast!
-3. If your code crashes, your tank will freeze but the game continues.
-4. Use math.atan2(dy, dx) to calculate angles to targets.
-5. In Mode 1 (Scramble), bullets only knock back - they don't damage!
-6. Use sensors["front"] < 50 to detect walls ahead and avoid them!
-
-HELPER FUNCTIONS:
------------------
-Below are some useful helper functions you can use or modify.
+1. Before writing the code, view all the necessary comments above!
+2. Don't try to modify the 'context' - it's a read-only copy!
+3. Your update() function has a 100ms time limit - keep it fast! (avoid any hardcore logic)
+4. If your code crashes, your tank will freeze but the game continues.
+5. Use math.atan2(dy, dx) to calculate angles to targets.
+6. In Mode 1 (Scramble), bullets only cause knockback - they don't damage!
 """
+
+# =============================================================================
+# HELPER FUNCTIONS (You can use these, but you don't need to edit them)
+# =============================================================================
 
 import math
 import random
@@ -104,7 +113,7 @@ def distance(x1, y1, x2, y2):
 
 
 def angle_to(x1, y1, x2, y2):
-    """Calculate angle from point (x1, y1) to point (x2, y2) in degrees."""
+    """Calculate angle from point (x1, y1) to point (x2, y2) in degrees. Returns -180° to +180°"""
     return math.degrees(math.atan2(y2 - y1, x2 - x1))
 
 
@@ -132,6 +141,7 @@ def will_bullet_hit_me(my_x, my_y, bullet, danger_radius=50):
     Returns True if bullet is dangerous.
     """
     # Future position of bullet
+    # Look ~10 frames ahead to estimate bullet direction (heuristic, not exact)
     future_x = bullet["x"] + bullet["vx"] * 10
     future_y = bullet["y"] + bullet["vy"] * 10
     
@@ -142,7 +152,6 @@ def will_bullet_hit_me(my_x, my_y, bullet, danger_radius=50):
     # Bullet is approaching if it gets closer
     return dist_future < dist_now and dist_now < danger_radius * 2
 
-
 # =============================================================================
 # YOUR CODE STARTS HERE!
 # =============================================================================
@@ -152,10 +161,10 @@ def update(context):
     This function is called every frame.
     
     Args:
-        context: Dictionary containing game state (see above for structure)
+        context: Dictionary containing game state (view above for structure)
     
     Returns:
-        (ACTION, PARAMETER) tuple - your tank's action for this frame
+        (ACTION, PARAMETER) tuple - your tank's action for this frame as discussed above
     """
     
     # Get my tank's info
@@ -173,6 +182,8 @@ def update(context):
     # =========================================================================
     
     # PRIORITY 0: OBSTACLE AVOIDANCE REFLEX (Prevents getting stuck!)
+    # all info related to sensors is discussed above and is only to learn and not edit anything!
+
     sensors = context["sensors"]
     my_angle = me["angle"]
     
@@ -203,123 +214,121 @@ def update(context):
     elif sensors["right"] < 30:
         # Wall on right - nudge left
         turn_angle = math.radians(my_angle - 45)
-        return ("MOVE", (math.cos(turn_angle), math.sin(turn_angle)))
+        return ("MOVE", (math.cos(turn_angle), math.sin(turn_angle)))   
     
+    # note: If none of the conditions above trigger,
+    # you must return your own action later (or tank will stop)
+
     # =========================================================================
-    # LEVEL 3: ACCUMULATIVE LOGIC (Move + Shoot independently)
+    # LEVEL 1 - THE SCRAMBLE
     # =========================================================================
-    if game_mode == 3:
-        # 1. CALCULATE MOVEMENT (Survival) - Accumulate vectors
-        total_move_x, total_move_y = 0.0, 0.0
-        
-        # A. Dodge Juggernaut (Critical - High weight)
+
+    if game_mode == 1: # Collect the coins
+
+        # Priority 1: Dodge incoming bullets (standard MOVE)
+        for bullet in bullets:
+            if will_bullet_hit_me(my_x, my_y, bullet):
+
+                # WRITE YOUR LOGIC HERE
+
+                #return ("MOVE",(dx,dy))
+
+        if coins:
+            nearest_coin, dist = find_nearest(my_x, my_y, coins)
+            if nearest_coin:
+                for enemy in enemies:
+                    enemy_dist = distance(enemy["x"], enemy["y"], nearest_coin["x"], nearest_coin["y"])
+
+                    # WRITE YOUR LOGIC HERE
+
+                    # # TIP: Compare enemy_dist with my_dist.
+                    # If an enemy is closer to this coin, you may want to shoot to knock them back first.
+                    # Also, don’t forget to move toward the coin!
+
+    # =========================================================================
+    # LEVEL 2 - THE LABYRINTH
+    # =========================================================================
+    
+    elif game_mode == 2: # Combat game
+
+        # Priority 1: Dodge incoming bullets (standard MOVE)
+        for bullet in bullets:
+            if will_bullet_hit_me(my_x, my_y, bullet):
+
+                # WRITE YOUR LOGIC HERE
+
+                #return ("MOVE",(dx,dy))
+
+        if enemies and me["ammo"] > 0:
+            # Find and attack nearest enemy
+            nearest_enemy, dist = find_nearest(my_x, my_y, enemies)
+            if nearest_enemy:
+
+                if dist < 80:
+                    # What if the two tanks are stuck to each other (very close range)?
+
+                    # WRITE YOUR LOGIC HERE (example: move away, strafe, or reposition)
+
+                elif dist < 200:
+                     # Enemy in range — attack
+                    target_angle = angle_to(my_x, my_y, nearest_enemy["x"], nearest_enemy["y"])
+                    return ("SHOOT", target_angle)
+                
+                else:
+                    # TO-DO: If enemy is far, should you move toward it? flank it? or reposition?
+                    
+                    # note: If you don't return an action here, your tank will stop!
+
+    # =========================================================================
+    # LEVEL 3 - THE JUGGERNAUT
+    # =========================================================================
+    
+    elif game_mode == 3: # Juggernaut game
+
+        total_move_x = 0
+        total_move_y = 0
+
+        # A. Dodge Juggernaut
         juggernaut = context.get("juggernaut")
         if juggernaut:
             jug_x, jug_y = juggernaut["x"], juggernaut["y"]
             jug_dist = distance(my_x, my_y, jug_x, jug_y)
             
             if jug_dist < 300:  # Fear radius
-                # Vector AWAY from Juggernaut (weighted by proximity)
-                flee_strength = (300 - jug_dist) / 300  # 1.0 at 0 dist, 0.0 at 300
-                dx = my_x - jug_x
-                dy = my_y - jug_y
-                mag = max((dx*dx + dy*dy)**0.5, 1)
-                total_move_x += (dx / mag) * flee_strength * 2  # High priority
-                total_move_y += (dy / mag) * flee_strength * 2
+                # Vector away from Juggernaut
+                target_angle = angle_to(my_x, my_y, jug_x, jug_y)
+                new_angle=target_angle + 180
+                total_move_x += math.cos(math.radians(new_angle))
+                total_move_y+= math.sin(math.radians(new_angle))
         
-        # B. Dodge Bullets (Add to movement)
+        # B. Dodge Bullets
         for bullet in bullets:
             if will_bullet_hit_me(my_x, my_y, bullet):
                 # Perpendicular dodge
                 dodge_angle = math.degrees(math.atan2(bullet["vy"], bullet["vx"])) + 90
-                total_move_x += math.cos(math.radians(dodge_angle))
-                total_move_y += math.sin(math.radians(dodge_angle))
+                dx = math.cos(math.radians(dodge_angle))
+                dy = math.sin(math.radians(dodge_angle))
+                return ("MOVE", (dx, dy))
         
-        # C. Chase Enemy or Wander
+        # C. Enemy logic
         target_enemy = None
         if enemies:
             target_enemy, enemy_dist = find_nearest(my_x, my_y, enemies)
-            
-            # Only add chase vector if not in danger/dodging hard
-            move_mag = (total_move_x**2 + total_move_y**2)**0.5
-            if target_enemy and move_mag < 0.5:
-                chase_dx = target_enemy["x"] - my_x
-                chase_dy = target_enemy["y"] - my_y
-                chase_mag = max((chase_dx**2 + chase_dy**2)**0.5, 1)
-                
-                # Orbit/Strafe logic: Don't run straight at them, keep distance
-                desired_dist = 200
-                if enemy_dist > desired_dist:
-                    # Chase
-                    total_move_x += (chase_dx / chase_mag) * 0.6
-                    total_move_y += (chase_dy / chase_mag) * 0.6
-                else:
-                    # Strafe (perpendicular)
-                    total_move_x += -(chase_dy / chase_mag) * 0.6
-                    total_move_y += (chase_dx / chase_mag) * 0.6
-        
-        # D. Wander if idle (prevents freezing)
-        move_mag = (total_move_x**2 + total_move_y**2)**0.5
-        if move_mag < 0.1:
-            # Move towards center-ish but stay away from exact center
-            center_angle = math.atan2(300 - my_y, 400 - my_x)
-            total_move_x += math.cos(center_angle + context.get("time_left", 0)) * 0.5
-            total_move_y += math.sin(center_angle + context.get("time_left", 0)) * 0.5
 
-        # Normalize movement vector
-        move_mag = (total_move_x**2 + total_move_y**2)**0.5
-        if move_mag > 0:
-            total_move_x /= move_mag
-            total_move_y /= move_mag
+            if enemy_dist < 250:
+
+                # WRITE YOUR LOGIC HERE
         
-        # 2. CALCULATE SHOOTING (Aggression)
-        shoot_angle = None
+        # Shooting
         if target_enemy and me["ammo"] > 0:
             shoot_angle = angle_to(my_x, my_y, target_enemy["x"], target_enemy["y"])
             shoot_angle += random.uniform(-5, 5) # Slight spread
-        
-        # 3. RETURN COMBINED ACTION
-        if shoot_angle is not None:
-            # Move AND shoot simultaneously
-            return ("MOVE_AND_SHOOT", ((total_move_x, total_move_y), shoot_angle))
+            return ("SHOOT",shoot_angle)
         
         # Fallback: Just Move
         return ("MOVE", (total_move_x, total_move_y))
     
-    # =========================================================================
-    # LEVEL 1 & 2: ORIGINAL LOGIC (Unchanged)
-    # =========================================================================
-    
-    # Priority 1: Dodge incoming bullets (standard MOVE - Level 1 & 2 only)
-    if game_mode != 3:
-        for bullet in bullets:
-            if will_bullet_hit_me(my_x, my_y, bullet):
-                dodge_angle = math.degrees(math.atan2(bullet["vy"], bullet["vx"])) + 90
-                dx = math.cos(math.radians(dodge_angle))
-                dy = math.sin(math.radians(dodge_angle))
-                return ("MOVE", (dx, dy))
-    
-    # Game Mode specific behavior
-    if game_mode == 1:  # THE SCRAMBLE - Collect coins!
-        if coins:
-            nearest_coin, dist = find_nearest(my_x, my_y, coins)
-            if nearest_coin:
-                dx = nearest_coin["x"] - my_x
-                dy = nearest_coin["y"] - my_y
-                return ("MOVE", (dx, dy))
-    
-    elif game_mode == 2:  # THE LABYRINTH - Original combat logic
-        if enemies and me["ammo"] > 0:
-            nearest_enemy, dist = find_nearest(my_x, my_y, enemies)
-            if nearest_enemy:
-                if dist < 200:
-                    target_angle = angle_to(my_x, my_y, nearest_enemy["x"], nearest_enemy["y"])
-                    return ("SHOOT", target_angle)
-                else:
-                    dx = nearest_enemy["x"] - my_x
-                    dy = nearest_enemy["y"] - my_y
-                    return ("MOVE", (dx, dy))
-    
+
     # Default: Wander around
     angle = random.uniform(0, 360)
     dx = math.cos(math.radians(angle))

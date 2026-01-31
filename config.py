@@ -151,6 +151,9 @@ JUGGERNAUT_BULLET_KNOCKBACK = 1000.0 # Heavy knockback
 JUGGERNAUT_BULLET_SIZE = 20         # Larger bullets
 JUGGERNAUT_TURRET_SIZE = 30         # Turret visual size
 
+# Level 3 Tank Modifiers
+LEVEL3_HEALTH_MULTIPLIER = 2.0      # Multiply tank health by this factor in Level 3
+
 
 # =============================================================================
 # COIN SETTINGS
@@ -170,11 +173,11 @@ GRID_CELL_SIZE = 50                 # For maze generation
 # BOT SETTINGS
 # =============================================================================
 BOT_TIMEOUT_MS = 100                # Max execution time for bot logic
-BOT_DEFAULT_COUNT = 10           # Number of bots in game
+BOT_DEFAULT_COUNT = 3        # Number of bots in game
 
 # =============================================================================
 # AUDIO SETTINGS
-# =============================================================================# AUDIO SETTINGS
+# =============================================================================
 MUSIC_VOLUME = 0.5
 SFX_VOLUME = 0.7  # Master SFX volume (base)
 
